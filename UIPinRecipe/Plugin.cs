@@ -11,6 +11,9 @@ using System;
 using BepInEx.Bootstrap;
 using UnityEngine.InputSystem;
 using System.Reflection;
+using System.Linq;
+using System.IO;
+using BepInEx.Logging;
 
 namespace UIPinRecipe
 {
@@ -24,6 +27,11 @@ namespace UIPinRecipe
         static ConfigEntry<int> panelWidth;
         static ConfigEntry<string> clearKey;
         static ConfigEntry<int> panelTop;
+        static ConfigEntry<string> pinnedRecipeList;
+
+        static string location;
+
+        static ManualLogSource logger;
         /// <summary>
         /// If the UICraftEquipmentInPlace plugin is also present, count the equipment too
         /// </summary>
@@ -33,10 +41,14 @@ namespace UIPinRecipe
             // Plugin startup logic
             Logger.LogInfo($"Plugin is loaded!");
 
+            
             fontSize = Config.Bind("General", "FontSize", 25, "The size of the font used");
             panelWidth = Config.Bind("General", "PanelWidth", 850, "The width of the recipe panel");
             panelTop = Config.Bind("General", "PanelTop", 150, "Panel position from the top of the screen.");
             clearKey = Config.Bind("General", "ClearKey", "C", "The key to press to clear all pinned recipes");
+
+            location = Path.GetDirectoryName(this.Info.Location);
+            logger = Logger;
 
             craftInPlaceEnabled = Chainloader.PluginInfos.ContainsKey(uiCraftEquipmentInPlaceGuid);
 
@@ -233,6 +245,10 @@ namespace UIPinRecipe
 
         static void PinUnpinGroup(Group group)
         {
+            PinUnpinGroup(group, true);
+        }
+        static void PinUnpinGroup(Group group, bool updateConfig)
+        {
             if (parent == null)
             {
                 parent = new GameObject("PinRecipeCanvas");
@@ -288,6 +304,8 @@ namespace UIPinRecipe
                     pinnedRecipes.Clear();
                     pinnedRecipes.AddRange(copy);
                 }
+                if (updateConfig)
+                    pinnedRecipeList.Value = pinnedRecipes.Join(x => x.group.GetId());
             }
         }
 
@@ -348,6 +366,38 @@ namespace UIPinRecipe
         {
             bool active = ___uisToHide[0].activeSelf;
             parent?.SetActive(active);
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(UiWindowPause), nameof(UiWindowPause.OnOpen))]
+        static bool UiWindowPause_OnOpen()
+        {
+            parent?.SetActive(false);
+            return true;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(UiWindowPause), nameof(UiWindowPause.OnClose))]
+        static bool UiWindowPause_OnClose()
+        {
+            parent?.SetActive(true);
+            return true;
+        }
+
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(TutorialHandler), nameof(TutorialHandler.StartTutorial))]
+        static void TutorialHandler_StartTutorial()
+        {
+            var sessionConfig = new ConfigFile(Path.Combine(location, Managers.GetManager<SavedDataHandler>().GetCurrentSaveFileName()), true);
+            pinnedRecipeList = sessionConfig.Bind("Recipes", "List", "", "Comma-separated list of pinned recipe IDs");
+            foreach (var groupId in pinnedRecipeList.Value.Split(','))
+            {
+                Group group = GroupsHandler.GetGroupViaId(groupId.Trim());
+                if (group == null || group.GetHideInCrafter())
+                    continue;
+
+                PinUnpinGroup(group, false);
+            };
         }
     }
 }

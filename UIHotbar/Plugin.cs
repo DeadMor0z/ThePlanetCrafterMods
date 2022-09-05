@@ -12,6 +12,8 @@ using BepInEx.Bootstrap;
 using UnityEngine.InputSystem;
 using System.Reflection;
 using BepInEx.Logging;
+using System.Linq;
+using System.IO;
 
 namespace UIHotbar
 {
@@ -25,6 +27,7 @@ namespace UIHotbar
         static ConfigEntry<int> slotSize;
         static ConfigEntry<int> slotBottom;
         static ConfigEntry<int> fontSize;
+        static ConfigEntry<string> slotsLayout;
 
         static ManualLogSource logger;
 
@@ -34,6 +37,10 @@ namespace UIHotbar
         const string modUiPinRecipeGuid = "akarnokd.theplanetcraftermods.uipinrecipe";
         static ConfigEntry<bool> modCraftFromContainersEnabled;
         static ConfigEntry<float> modCraftFromContainersRange;
+
+        static string location;
+
+        static bool needHotbarUpdate = false;
 
         private void Awake()
         {
@@ -45,6 +52,8 @@ namespace UIHotbar
             slotBottom = Config.Bind("General", "SlotBottom", 40, "Placement of the panels relative to the bottom of the screen.");
 
             logger = Logger;
+
+            location = Path.GetDirectoryName(this.Info.Location);
 
             if (Chainloader.PluginInfos.TryGetValue(modUiPinRecipeGuid, out BepInEx.PluginInfo pi))
             {
@@ -134,6 +143,7 @@ namespace UIHotbar
             if (parent == null)
             {
                 Logger.LogInfo("Begin Creating the Hotbar");
+
                 parent = new GameObject("HotbarCanvas");
                 Canvas canvas = parent.AddComponent<Canvas>();
                 canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -218,6 +228,19 @@ namespace UIHotbar
                     // -----------------------------------------------------------
                     x += s + 5;
                 }
+            }
+            else if (needHotbarUpdate)
+            {
+                int i = 0;
+                foreach (var groupId in slotsLayout.Value.Split(','))
+                {
+                    if (i >= slots.Count) break;
+                    Group group = GroupsHandler.GetGroupViaId(groupId.Trim());
+                    if (group != null && !group.GetHideInCrafter() && group.GetRecipe() != null)
+                        PinUnpinGroup(group, i, false);
+                    i++;
+                }
+                needHotbarUpdate = false;
             }
         }
 
@@ -518,7 +541,7 @@ namespace UIHotbar
             return -1;
         }
 
-        static void PinUnpinGroup(Group group, int slot)
+        static void PinUnpinGroup(Group group, int slot, bool updateConfig = true)
         {
             if (slot >= 0 && slot < slots.Count)
             {
@@ -556,6 +579,9 @@ namespace UIHotbar
                         }
                     }
                 }
+
+                if (updateConfig)
+                    slotsLayout.Value = slots.Join(x => x.currentGroup == null ? "" : x.currentGroup.GetId());
             }
         }
 
@@ -565,6 +591,31 @@ namespace UIHotbar
         {
             bool active = ___uisToHide[0].activeSelf;
             parent?.SetActive(active);
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(UiWindowPause), nameof(UiWindowPause.OnOpen))]
+        static bool UiWindowPause_OnOpen()
+        {
+            parent?.SetActive(false);
+            return true;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(UiWindowPause), nameof(UiWindowPause.OnClose))]
+        static bool UiWindowPause_OnClose()
+        {
+            parent?.SetActive(true);
+            return true;
+        }
+
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(TutorialHandler), nameof(TutorialHandler.StartTutorial))]
+        static void TutorialHandler_StartTutorial()
+        {
+            var sessionConfig = new ConfigFile(Path.Combine(location, Managers.GetManager<SavedDataHandler>().GetCurrentSaveFileName()), true);
+            slotsLayout = sessionConfig.Bind("Slots", "Layout", "", "Comma-separated list of recipe IDs assigned to slots.");
+            needHotbarUpdate = true;
         }
 
     }
