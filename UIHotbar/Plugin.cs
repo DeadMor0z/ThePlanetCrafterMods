@@ -41,6 +41,7 @@ namespace UIHotbar
         static string location;
 
         static bool needHotbarUpdate = false;
+        static bool isPaused = false;
 
         private void Awake()
         {
@@ -261,6 +262,8 @@ namespace UIHotbar
 
         void UpdateRender(PlayerMainController player)
         {
+            if (isPaused) return;
+
             bool isFreeCraft = Managers.GetManager<PlayModeHandler>().GetFreeCraft();
             WindowsHandler wh = Managers.GetManager<WindowsHandler>();
 
@@ -598,15 +601,16 @@ namespace UIHotbar
         static bool UiWindowPause_OnOpen()
         {
             parent?.SetActive(false);
+            isPaused = true;
             return true;
         }
 
-        [HarmonyPrefix]
+        [HarmonyPostfix]
         [HarmonyPatch(typeof(UiWindowPause), nameof(UiWindowPause.OnClose))]
-        static bool UiWindowPause_OnClose()
+        static void UiWindowPause_OnClose()
         {
             parent?.SetActive(true);
-            return true;
+            isPaused = false;
         }
 
         [HarmonyPostfix]

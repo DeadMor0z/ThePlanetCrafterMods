@@ -30,6 +30,7 @@ namespace UIPinRecipe
         static ConfigEntry<string> pinnedRecipeList;
 
         static string location;
+        static bool isPaused = false;
 
         static ManualLogSource logger;
         /// <summary>
@@ -66,7 +67,8 @@ namespace UIPinRecipe
             {
                 foreach (PinnedRecipe pr in pinnedRecipes)
                 {
-                    pr.UpdateState();
+                    if (!isPaused)
+                        pr.UpdateState();
                 }
                 yield return new WaitForSeconds(0.25f);
             }
@@ -74,6 +76,7 @@ namespace UIPinRecipe
 
         void Update()
         {
+            if (isPaused) return;
             if (pinnedRecipes.Count != 0) {
                 FieldInfo pi = typeof(Key).GetField(clearKey.Value.ToString().ToUpper());
                 Key k = Key.C;
@@ -373,15 +376,16 @@ namespace UIPinRecipe
         static bool UiWindowPause_OnOpen()
         {
             parent?.SetActive(false);
+            isPaused = true;
             return true;
         }
 
-        [HarmonyPrefix]
+        [HarmonyPostfix]
         [HarmonyPatch(typeof(UiWindowPause), nameof(UiWindowPause.OnClose))]
-        static bool UiWindowPause_OnClose()
+        static void UiWindowPause_OnClose()
         {
             parent?.SetActive(true);
-            return true;
+            isPaused = false;
         }
 
         [HarmonyPostfix]
